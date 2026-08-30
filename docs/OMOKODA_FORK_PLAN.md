@@ -70,3 +70,66 @@ reference submodule (not forked) since the identity swap is a
 firmware/protocol-level change; the companion app can point at a forked
 firmware's existing wire format without needing its own fork, at least
 until/unless the protobuf extension requires app-side changes too.
+
+**2026-08-29, `NostrCryptoEngine` first implementation.** Added
+`src/mesh/NostrCryptoEngine.{h,cpp}`, a `CryptoEngine` subclass
+(`src/mesh/CryptoEngine.h`) that overrides `generateKeyPair`,
+`regeneratePublicKey`, and `ensurePkiKeys` to derive the Curve25519
+transport key from the ecosystem's Nostr master seed instead of
+generating a random one.
+
+Curve mismatch (secp256k1 Nostr identity vs. Curve25519 Meshtastic PKI)
+is resolved the same way `omokoda-mesh`'s Reticulum bridge resolves it
+for `RNS::Identity` (`~/omokoda-mesh/lib/reticulum_bridge/reticulum_bridge.cpp`,
+`deriveRnsIdentity()`): derive a dedicated BIP-32 hardened child from the
+same master seed, don't reuse the secp256k1 key bit-for-bit. Path
+allocation at `m/44'/20000'/<node_index>'/N'` (recorded in
+`NostrCryptoEngine.h` too):
+- N=0 — Nostr identity (secp256k1), `omokoda-mesh`
+- N=1 — Reticulum X25519, `omokoda-mesh`
+- N=2 — Reticulum Ed25519, `omokoda-mesh`
+- N=3 — **this fork's** Curve25519 transport key (new)
+
+The Nostr key (N=0) stays the ecosystem's sole root of trust; this
+fork's derived key is transport-layer only, same status as
+`RNS::Identity`.
+
+Ported (cited in-file as copied/adapted, not reinvented) into
+`src/mesh/nostr/`: `bip32_derivation.{h,cpp}` (BIP-32 hardened
+derivation, matches BIPON39's math), `master_seed.{h,cpp}` (NVS +
+serial-injection seed storage, same NVS namespace/key as
+`omokoda-mesh` so a seed is portable across both firmwares), and
+`node_index.{h,cpp}` (ESP32 eFuse-MAC-derived per-node index, no
+external registry). Vendored `secp256k1-embedded` as a git submodule at
+`vendor/secp256k1-embedded` (same upstream as `omokoda-mesh`, added to
+`.gitmodules`), plus `lib/crypto_secp256k1/{libsecp256k1-config.h,
+secp256k1_bundle.c}` — this fork's config only enables the base
+module (no Schnorr/extrakeys; this repo doesn't sign Nostr events
+itself, only derives a key). `platformio.ini`'s `[env]` build_flags gained
+the two `-I` include paths for this.
+
+Not done yet:
+- Not wired into boot/`main.cpp` — `crypto` global still defaults to the
+  platform engines (`ESP32CryptoEngine`, etc). Constructing a
+  `NostrCryptoEngine` at boot needs a `MasterSeedSource*` and node
+  index available before `crypto` is assigned, which touches the same
+  boot-ordering questions `omokoda-mesh`'s own `main.cpp` wiring
+  already solved (see that repo's commit `fac6729`) — deliberately left
+  for a follow-up pass so this stays a small, reviewable diff.
+  `SerialSeedProvisioner`/first-boot provisioning flow is ported but
+  also unwired for the same reason.
+- Not build-verified with `pio run` — no PlatformIO toolchain available
+  in this environment. Verified instead: the new `.cpp`/`.h` files
+  match `CryptoEngine`'s existing virtual signatures and member
+  visibility, `secp256k1.h` resolves and syntax-checks cleanly against
+  the vendored submodule + this fork's config header
+  (`g++ -fsyntax-only`), and the submodule/include-path setup mirrors
+  `omokoda-mesh`'s own working `platformio.ini` pattern exactly. Still
+  unverified: whether `meshtastic/Crypto` (the pinned fork of
+  rweather/Crypto this repo's `esp32.ini` pulls in) actually ships
+  `SHA512.h` with the same `resetHMAC`/`finalizeHMAC` API
+  `bip32_derivation.cpp` assumes — needs a real `pio run -e heltec-v3`
+  to confirm.
+- Protobuf extension for carrying a Nostr pubkey alongside
+  `meshtastic_User`/`NodeInfo` (see "What we change" above) — not
+  started.

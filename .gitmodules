@@ -4,3 +4,6 @@
 [submodule "meshtestic"]
 	path = meshtestic
 	url = https://github.com/meshtastic/meshTestic
+[submodule "vendor/secp256k1-embedded"]
+	path = vendor/secp256k1-embedded
+	url = https://github.com/diybitcoinhardware/secp256k1-embedded.git
