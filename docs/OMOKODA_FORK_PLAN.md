@@ -118,18 +118,15 @@ Not done yet:
   for a follow-up pass so this stays a small, reviewable diff.
   `SerialSeedProvisioner`/first-boot provisioning flow is ported but
   also unwired for the same reason.
-- Not build-verified with `pio run` — no PlatformIO toolchain available
-  in this environment. Verified instead: the new `.cpp`/`.h` files
-  match `CryptoEngine`'s existing virtual signatures and member
-  visibility, `secp256k1.h` resolves and syntax-checks cleanly against
-  the vendored submodule + this fork's config header
-  (`g++ -fsyntax-only`), and the submodule/include-path setup mirrors
-  `omokoda-mesh`'s own working `platformio.ini` pattern exactly. Still
-  unverified: whether `meshtastic/Crypto` (the pinned fork of
-  rweather/Crypto this repo's `esp32.ini` pulls in) actually ships
-  `SHA512.h` with the same `resetHMAC`/`finalizeHMAC` API
-  `bip32_derivation.cpp` assumes — needs a real `pio run -e heltec-v3`
-  to confirm.
+- **Build-verified 2026-08-29** — `pio run -e heltec-v3` (PlatformIO
+  6.1.19 under a Python 3.12 venv) completed `SUCCESS`, full
+  `firmware-heltec-v3-2.8.0.92c00fc.factory.bin` produced (RAM 38.8%,
+  Flash 68.4%). Zero compile errors; zero warnings on
+  `NostrCryptoEngine.cpp.o`, `bip32_derivation.cpp.o`,
+  `master_seed.cpp.o`, `node_index.cpp.o` specifically. The flagged
+  `meshtastic/Crypto` `SHA512.h` `resetHMAC`/`finalizeHMAC` API risk did
+  not materialize — `Crypto/SHA512.cpp.o` compiled clean against the
+  same calls `bip32_derivation.cpp` makes.
 - Protobuf extension for carrying a Nostr pubkey alongside
   `meshtastic_User`/`NodeInfo` (see "What we change" above) — not
   started.
