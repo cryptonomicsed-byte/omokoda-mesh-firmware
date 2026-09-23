@@ -24,6 +24,10 @@
 #include "FSCommon.h"
 #include "Power.h"
 #include "SPILock.h"
+#include "mesh/CryptoEngine.h"
+#include "mesh/NostrCryptoEngine.h"
+#include "mesh/nostr/master_seed.h"
+#include "mesh/nostr/node_index.h"
 #include "Throttle.h"
 #include "WaypointStore.h"
 #include "concurrency/OSThread.h"
@@ -217,6 +221,10 @@ volatile static const char slipstreamTZString[] = {USERPREFS_TZ_STRING};
 
 // We always create a screen object, but we only init it if we find the hardware
 std::unique_ptr<graphics::Screen> screen = nullptr;
+
+// E-19: NostrCryptoEngine.begin() must be called at boot for all signing to work
+// Global NostrCryptoEngine instance — replaces the platform CryptoEngine singleton at boot
+NostrCryptoEngine *nostrCrypto = nullptr;
 
 // Global power status
 meshtastic::PowerStatus *powerStatus = new meshtastic::PowerStatus();
@@ -858,6 +866,21 @@ void setup()
     // We do this as early as possible because this loads preferences from flash
     // but we need to do this after main cpu init (esp32setup), because we need the random seed set
     nodeDB = new NodeDB;
+
+    // E-19: NostrCryptoEngine.begin() must be called at boot for all signing to work
+    // Replace the platform CryptoEngine singleton with NostrCryptoEngine so all
+    // Meshtastic PKI key-generation and signing uses BIP-32-derived key material
+    // rooted in the node's Nostr master seed (NIP-06 path m/44'/20000'/<idx>'/3').
+    // Must run after nodeDB (NVS is open) and before any ensurePkiKeys call.
+    {
+        static omokoda::NvsMasterSeedSource nvsSeedSource;
+        uint32_t nodeIdx = omokoda::deriveNodeIndexFromHardwareId();
+        delete crypto;
+        nostrCrypto = new NostrCryptoEngine(&nvsSeedSource, nodeIdx);
+        crypto = nostrCrypto;
+        LOG_INFO("NostrCryptoEngine initialised (node_index=%u)", nodeIdx);
+    }
+
 #ifdef ARCH_ESP32
     // Config is loaded now, and Bluetooth has not been initialized yet. If the
     // saved config will keep Bluetooth inactive, return its reserved memory early.
